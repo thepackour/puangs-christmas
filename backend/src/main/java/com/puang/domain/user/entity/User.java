@@ -27,6 +27,11 @@ public class User extends BaseEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // Random UUID issued when the account is created. The app stores it and uses it to get access tokens.
+    // Unique (indexed) because every token request looks the user up by it. Never changes.
+    @Column(nullable = false, unique = true, updatable = false, length = 36)
+    private String uuid;
+
     // 게스트 로그인은 이메일/비밀번호 없이 가입하므로 nullable
     @Column(unique = true)
     private String email;
@@ -45,12 +50,21 @@ public class User extends BaseEntity {
     private boolean allowNotification;
 
     @Builder
-    private User(String email, String nickname, String password, Guild guild, boolean allowNotification) {
+    private User(String uuid, String email, String nickname, String password, Guild guild, boolean allowNotification) {
+        this.uuid = uuid;
         this.email = email;
         this.nickname = nickname;
         this.password = password;
         this.guild = guild;
         this.allowNotification = allowNotification;
+    }
+
+    public static User createWithUuid(String uuid, String nickname) {
+        return User.builder()
+                .uuid(uuid)
+                .nickname(nickname)
+                .allowNotification(true)
+                .build();
     }
 
     public void changeNickname(String nickname) {
