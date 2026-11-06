@@ -1,5 +1,5 @@
 ---
-name: 작업 / Task
+name: 프론트엔드 작업 / Frontend Task
 about: 새 작업을 시작하기 전에 만드는 이슈 / Create an issue before starting new work
 title: "[taskType] task"
 labels: "frontend"
