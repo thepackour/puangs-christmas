@@ -27,19 +27,15 @@ public class User extends BaseEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Random UUID issued when the account is created. The app stores it and uses it to get access tokens.
-    // Unique (indexed) because every token request looks the user up by it. Never changes.
-    @Column(nullable = false, unique = true, updatable = false, length = 36)
-    private String uuid;
-
-    // 게스트 로그인은 이메일/비밀번호 없이 가입하므로 nullable
-    @Column(unique = true)
+    // Login id. Unique (indexed) because every login looks the user up by it.
+    @Column(nullable = false, unique = true)
     private String email;
 
     @Column(nullable = false, length = 30)
     private String nickname;
 
-    // 암호화된 값만 저장
+    // BCrypt hash only, never the raw password
+    @Column(nullable = false)
     private String password;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -50,8 +46,7 @@ public class User extends BaseEntity {
     private boolean allowNotification;
 
     @Builder
-    private User(String uuid, String email, String nickname, String password, Guild guild, boolean allowNotification) {
-        this.uuid = uuid;
+    private User(String email, String nickname, String password, Guild guild, boolean allowNotification) {
         this.email = email;
         this.nickname = nickname;
         this.password = password;
@@ -59,9 +54,10 @@ public class User extends BaseEntity {
         this.allowNotification = allowNotification;
     }
 
-    public static User createWithUuid(String uuid, String nickname) {
+    public static User create(String email, String encodedPassword, String nickname) {
         return User.builder()
-                .uuid(uuid)
+                .email(email)
+                .password(encodedPassword)
                 .nickname(nickname)
                 .allowNotification(true)
                 .build();
