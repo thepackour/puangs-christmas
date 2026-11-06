@@ -22,3 +22,10 @@ spring:
 
   flyway:
     enabled: false
+
+# JWT settings. Put JWT_SECRET in .env (at least 32 characters).
+# If JWT_SECRET is empty, a random key is generated at startup (dev only: tokens break on restart).
+jwt:
+  secret: ${JWT_SECRET:}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:PT1H}
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:P14D}
