@@ -1,3 +1,24 @@
 spring:
   application:
     name: puang
+  config:
+    import: optional:file:.env[.properties]
+
+  # If DB_URL is set (e.g. in .env), MySQL is used.
+  # If it is not set, the app falls back to an in-memory H2 database in MySQL mode.
+  # The driver and Hibernate dialect are detected from the URL.
+  datasource:
+    url: ${DB_URL:jdbc:h2:mem:puang;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: create
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: false
