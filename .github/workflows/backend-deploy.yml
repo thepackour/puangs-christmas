@@ -129,16 +129,16 @@ jobs:
           docker logout ghcr.io
           docker image prune -f
 
-          # Wait until Spring answers HTTP (any status code, e.g. 401/404, means it is up).
+          # Wait until Spring answers HTTP on the local port (any status code, e.g. 401/404, means it is up).
           for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/ || true)
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8082/ || true)
             if [ "$code" != "000" ]; then
               echo "Backend is up (HTTP $code) after $((i * 5))s"
               exit 0
             fi
             sleep 5
           done
-          echo "::error::Backend did not respond within 150s. Last logs:"
+          echo "::error::Backend did not start within 150s. Last logs:"
           docker compose logs --tail=100 backend
           exit 1
           EOF
