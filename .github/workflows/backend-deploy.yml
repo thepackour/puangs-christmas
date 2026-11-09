@@ -1,0 +1,148 @@
+name: Backend CI/CD
+
+# - Pull request to develop/main: build and test only.
+# - Push to develop: build, test, push the image to GHCR, deploy to the test server.
+# - Manual run (Actions tab > Backend CI/CD > Run workflow): deploy any branch to the test server.
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - "backend/**"
+      - "deploy/**"
+      - ".github/workflows/backend-deploy.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "backend/**"
+      - "deploy/**"
+      - ".github/workflows/backend-deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: backend-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE: ghcr.io/thepackour/puangs-christmas-backend
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and test
+        run: |
+          chmod +x gradlew
+          ./gradlew build --no-daemon
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: backend/build/reports/tests/test
+
+  # On pull requests the image is only built (not pushed) to check the Dockerfile.
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Oracle Cloud Always Free has both amd64 (E2.1.Micro) and arm64 (Ampere A1) VMs,
+      # so the image is built for both.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: test-server
+    permissions:
+      contents: read
+      packages: read
+    env:
+      SERVER_HOST: ${{ secrets.SERVER_HOST }}
+      SERVER_USER: ${{ secrets.SERVER_USER }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Copy compose file
+        run: |
+          ssh -i ~/.ssh/id_deploy "$SERVER_USER@$SERVER_HOST" 'mkdir -p ~/puangs-christmas'
+          scp -i ~/.ssh/id_deploy deploy/docker-compose.yml "$SERVER_USER@$SERVER_HOST:~/puangs-christmas/docker-compose.yml"
+
+      - name: Pull and restart
+        run: |
+          ssh -i ~/.ssh/id_deploy "$SERVER_USER@$SERVER_HOST" \
+            "GHCR_USER='${{ github.actor }}' GHCR_TOKEN='${{ secrets.GITHUB_TOKEN }}' BACKEND_IMAGE='${{ env.IMAGE }}:${{ github.sha }}' bash -s" <<'EOF'
+          set -euo pipefail
+          cd ~/puangs-christmas
+          if [ ! -f .env ]; then
+            echo "::error::~/puangs-christmas/.env is missing on the server. Copy deploy/.env.example and fill it in."
+            exit 1
+          fi
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          export BACKEND_IMAGE
+          docker compose pull
+          docker compose up -d --remove-orphans
+          docker logout ghcr.io
+          docker image prune -f
+
+          # Wait until Spring answers HTTP on the local port (any status code, e.g. 401/404, means it is up).
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8082/ || true)
+            if [ "$code" != "000" ]; then
+              echo "Backend is up (HTTP $code) after $((i * 5))s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Backend did not start within 150s. Last logs:"
+          docker compose logs --tail=100 backend
+          exit 1
+          EOF
+
+      - name: Clean up SSH key
+        if: always()
+        run: rm -f ~/.ssh/id_deploy
