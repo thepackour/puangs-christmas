@@ -39,7 +39,7 @@ public class Player extends BaseTimeEntity {
     @Column(nullable = false)
     private long score;
 
-    // 남은 일일 이동 횟수
+    // moves left
     @Column(nullable = false)
     private int moves;
 
